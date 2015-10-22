@@ -23,10 +23,11 @@ import org.apache.solr.client.solrj.response.QueryResponse;
 
 import java.io.IOException;
 import java.io.Serializable;
-import java.util.*;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -61,24 +62,35 @@ public class SimpleQuerySampler extends AbstractJavaSamplerClient implements Ser
 
     private static ConsoleReporter reporter = null;
 
-    public static SolrClient getSolrClient() {
-        return solrClient;
-    }
+/*  Using 2 fields (fusionClient and solrClient) instead of only 1,
+    because I assume that a SolrClient instance created to connect to Fusion
+    perhaps could do more work and be less performant than SolrClient configured to work with Solr.
+    But fusionClient allows to use a query pipeline. So for the search queries I use fusionClient.
+    For all the other queries that don't need any Fusion functionality is used solrClient.*/
+    private static volatile SolrClient fusionClient = null;
 
-    private static SolrClient solrClient = null;
+    /*
+      HttpSolrServer is thread-safe and if you are using the following constructor,
+      you *MUST* re-use the same instance for all requests.  If instances are created on
+      the fly, it can cause a connection leak. The recommended practice is to keep a
+      static instance of HttpSolrServer per solr server url and share it for all requests.
+      See https://issues.apache.org/jira/browse/SOLR-861 for more details
+    */
+    private static volatile SolrClient solrClient = null;
 
-    private static Random random;
+    //private static Random random;
     private CloseableHttpClient httpClient;
     public static final int DOCUMENTS_NUMBER = 3000000;
     public static final String FIELD_TO_SEARCH_BY = "first_name";
     private String[] queries = new String[100000];
     private int queryCounter = 0;
     private static CountDownLatch latch = new CountDownLatch(3);
-    private static FutureTask<Boolean> updaterTask = new FutureTask<Boolean>(new SolrAtomicUpdater());
+    private static FutureTask<Boolean> updaterTask;
     private static Thread updaterThread;
 
-
-
+    public static SolrClient getSolrClient() {
+        return solrClient;
+    }
 
 
     @Override
@@ -91,7 +103,7 @@ public class SimpleQuerySampler extends AbstractJavaSamplerClient implements Ser
 
         final com.codahale.metrics.Timer.Context queryTimerCtxt = queryTimer.time();
         try {
-            QueryResponse qr = solrClient.query(query);
+            QueryResponse qr = fusionClient.query(query);
             if (qr.getResults().getNumFound() == 0)
                 noResultsCounter.inc();
 
@@ -121,18 +133,50 @@ public class SimpleQuerySampler extends AbstractJavaSamplerClient implements Ser
         defaultParameters.addArgument("QUERY_PIPELINE", "http://localhost:8764/api/apollo/query-pipelines/default/collections/system_metrics");
         defaultParameters.addArgument("username", "admin");
         defaultParameters.addArgument("password", "password123");
+        defaultParameters.addArgument("documentIdPrefix", "GenaratedSearchData.csv#");
         return defaultParameters;
     }
 
     @Override
     public void setupTest(JavaSamplerContext context) {
         super.setupTest(context);
-getLogger().info("test");
-
 
         refCounter.incrementAndGet(); // keep track of threads using the statics in this class
 
-        Map<String,String> params = new HashMap<>();
+        Map<String, String> params = loadParamsMap(context);
+
+        setupFusionClient(params);
+
+        setupSolrClient(params);
+        //setupSolrClient must be called before generateSearchQueries, because of FieldValuesSingleton
+        generateSearchQueries();
+
+        setupReporter();
+        synchronized (SimpleQuerySampler.class) {
+            if (updaterThread == null) {
+                SolrAtomicUpdater updater = new SolrAtomicUpdater(solrClient, params.get("documentIdPrefix"));
+                updaterTask = new FutureTask<Boolean>(updater);
+                updaterThread = new Thread(updaterTask);
+                updaterThread.start();
+            }
+        }
+        waitAllInitialisationFinished();
+
+    }
+
+    private void setupReporter() {
+        synchronized (SimpleQuerySampler.class) {
+            if (reporter == null) {
+                reporter = ConsoleReporter.forRegistry(metrics)
+                        .convertRatesTo(TimeUnit.SECONDS)
+                        .convertDurationsTo(TimeUnit.MILLISECONDS).build();
+                reporter.start(1, TimeUnit.MINUTES);
+            }
+        }
+    }
+
+    private Map<String, String> loadParamsMap(JavaSamplerContext context) {
+        Map<String, String> params = new HashMap<>();
         Iterator<String> paramNames = context.getParameterNamesIterator();
         while (paramNames.hasNext()) {
             String paramName = paramNames.next();
@@ -140,28 +184,19 @@ getLogger().info("test");
             if (param != null)
                 params.put(paramName, param);
         }
+        return params;
+    }
 
-
-        generateSearchQueries();
-
-
+    private void setupFusionClient(Map<String, String> params) {
         String mode = params.get("mode");
-
         synchronized (SimpleQuerySampler.class) {
-            if (solrClient == null) {
-                if ("solr".equals(mode)) {
-                    String collection = params.get("COLLECTION");
-                    String url = params.get("SOLR_URL");
-                    if (!url.endsWith("/")) {
-                        url = url + "/";
-                    }
-                    solrClient = new HttpSolrClient(url + collection);
-                } else if ("solrcloud".equals(mode)) {
+            if (fusionClient == null) {
+                if ("solrcloud".equals(mode)) {
                     String collection = params.get("COLLECTION");
                     String zkString = params.get("ZK_HOST");
-                    solrClient = new CloudSolrClient(zkString);
-                    ((CloudSolrClient) solrClient).setDefaultCollection(collection);
-                    ((CloudSolrClient) solrClient).connect();
+                    fusionClient = new CloudSolrClient(zkString);
+                    ((CloudSolrClient) fusionClient).setDefaultCollection(collection);
+                    ((CloudSolrClient) fusionClient).connect();
                 } else if ("fusion".equals(mode)) {
                     String username = params.get("username");
                     String password = params.get("password");
@@ -170,25 +205,24 @@ getLogger().info("test");
                     httpClient = HttpClientBuilder.create().useSystemProperties()
                             .addInterceptorLast(new PreEmptiveBasicAuthenticator(username, password))
                             .build();
-                    solrClient = new HttpSolrClient(url, httpClient, new XMLResponseParser());
+                    fusionClient = new HttpSolrClient(url, httpClient, new XMLResponseParser());
                 }
             }
+        }
 
-            if (reporter == null) {
-                reporter = ConsoleReporter.forRegistry(metrics)
-                        .convertRatesTo(TimeUnit.SECONDS)
-                        .convertDurationsTo(TimeUnit.MILLISECONDS).build();
-                reporter.start(1, TimeUnit.MINUTES);
+    }
+
+    private void setupSolrClient(Map<String, String> params){
+        synchronized (SimpleQuerySampler.class) {
+            if (solrClient == null) {
+                String collection = params.get("COLLECTION");
+                String url = params.get("SOLR_URL");
+                if (!url.endsWith("/")) {
+                    url = url + "/";
+                }
+                solrClient = new HttpSolrClient(url + collection);
             }
         }
-        synchronized(SimpleQuerySampler.class) {
-            if (updaterThread == null) {
-                updaterThread = new Thread(updaterTask);
-                updaterThread.start();
-            }
-        }
-        waitAllInitialisationFinished();
-
     }
 
     private void waitAllInitialisationFinished() {
@@ -202,10 +236,7 @@ getLogger().info("test");
 
     private void generateSearchQueries() {
         for (int i = 0; i < queries.length; i++) {
-             // nextInt is normally exclusive of the top value,
-             // so add 1 to make it inclusive
-            //int randomFieldValueIndex = ThreadLocalRandom.current().nextInt(0, DOCUMENTS_NUMBER / 2);
-            queries[i] = FIELD_TO_SEARCH_BY + ":" + FieldValuesSingleton.INSTANCE.getRandomTerm(); //FieldValuesSingleton.INSTANCE.getTerms().get(randomFieldValueIndex);
+            queries[i] = FIELD_TO_SEARCH_BY + ":" + FieldValuesSingleton.INSTANCE.getRandomTerm();
         }
     }
 
@@ -224,7 +255,7 @@ getLogger().info("test");
 
     @Override
     public void teardownTest(JavaSamplerContext context) {
-        if (solrClient != null) {
+        if (fusionClient != null) {
             int refs = refCounter.decrementAndGet();
             if (refs == 0) {
                 getLogger().info("Shutting down solr client");
@@ -233,9 +264,10 @@ getLogger().info("test");
                     reporter.stop();
                 }
                 try {
+                    fusionClient.close();
                     solrClient.close();
                 } catch (IOException e) {
-                    solrClient = null;
+                    fusionClient = null;
                 }
             }
         }
