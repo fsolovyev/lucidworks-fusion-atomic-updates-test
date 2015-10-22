@@ -17,10 +17,14 @@ public class SolrAtomicUpdater implements Callable<Boolean> {
 
     private final SolrClient client;
     private final String documentIdPrefix;
+    private final int documentsNumber;
+    private final String fieldToSearchBy;
 
-    SolrAtomicUpdater(SolrClient solrClient, String documentIdPrefix) {
+    SolrAtomicUpdater(SolrClient solrClient, String documentIdPrefix, int documentsNumber, String fieldToSearchBy) {
         this.client = solrClient;
         this.documentIdPrefix = documentIdPrefix;
+        this.documentsNumber = documentsNumber;
+        this.fieldToSearchBy = fieldToSearchBy;
     }
 
     @Override
@@ -28,7 +32,7 @@ public class SolrAtomicUpdater implements Callable<Boolean> {
 
         while (!Thread.currentThread().isInterrupted()) {
 
-            int randomEntryId = ThreadLocalRandom.current().nextInt(0, SimpleQuerySampler.DOCUMENTS_NUMBER);
+            int randomEntryId = ThreadLocalRandom.current().nextInt(0, documentsNumber);
 
             SolrInputDocument sdoc = createDocumentUpdate(randomEntryId, FieldValuesSingleton.INSTANCE.getRandomTerm());
 
@@ -50,7 +54,7 @@ public class SolrAtomicUpdater implements Callable<Boolean> {
         sdoc.addField("id", documentIdPrefix + entryId);
         Map<String, Object> fieldModifier = new HashMap<String, Object>(1);
         fieldModifier.put("set", term);
-        sdoc.addField(SimpleQuerySampler.FIELD_TO_SEARCH_BY, fieldModifier); // add the map as the field value
+        sdoc.addField(fieldToSearchBy, fieldModifier); // add the map as the field value
         return sdoc;
     }
 

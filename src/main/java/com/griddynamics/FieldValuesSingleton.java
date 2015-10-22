@@ -1,8 +1,11 @@
 package com.griddynamics;
 
+import org.apache.solr.client.solrj.SolrClient;
 import org.apache.solr.client.solrj.SolrQuery;
 import org.apache.solr.client.solrj.SolrServerException;
+import org.apache.solr.client.solrj.impl.HttpSolrClient;
 import org.apache.solr.client.solrj.response.QueryResponse;
+import org.apache.solr.common.SolrInputDocument;
 import org.apache.solr.common.params.SolrParams;
 import org.apache.solr.common.params.TermsParams;
 import org.apache.solr.common.util.NamedList;
@@ -15,7 +18,8 @@ import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
 /*
-    SimpleQuerySampler.solrClient instance must be already created before FieldValuesSingleton can be used.
+    SimpleQuerySampler.solrClient and SimpleQuerySampler.fieldToSearchBy
+    must be already initialised before FieldValuesSingleton can be used.
  */
 public enum FieldValuesSingleton
 {
@@ -31,7 +35,7 @@ public enum FieldValuesSingleton
     private List<String> loadTerms() {
 
         SolrParams q = new SolrQuery().setRequestHandler("/terms")
-                .set(TermsParams.TERMS, true).set(TermsParams.TERMS_FIELD, SimpleQuerySampler.FIELD_TO_SEARCH_BY)
+                .set(TermsParams.TERMS, true).set(TermsParams.TERMS_FIELD, SimpleQuerySampler.getFieldToSearchBy())
                 .set(TermsParams.TERMS_LIMIT, -1);
         QueryResponse queryResponse = null;
 
@@ -43,7 +47,7 @@ public enum FieldValuesSingleton
             throw new RuntimeException(e);
         }
 
-        NamedList tags = (NamedList) ((NamedList)queryResponse.getResponse().get("terms")).get(SimpleQuerySampler.FIELD_TO_SEARCH_BY);
+        NamedList tags = (NamedList) ((NamedList)queryResponse.getResponse().get("terms")).get(SimpleQuerySampler.getFieldToSearchBy());
 
         List<String> result = new ArrayList<String>();
         for (Iterator iterator = tags.iterator(); iterator.hasNext();) {

@@ -31,7 +31,7 @@
                         <collectionProp name="Arguments.arguments">
                             <elementProp name="mode" elementType="Argument">
                                 <stringProp name="Argument.name">mode</stringProp>
-                                <stringProp name="Argument.value">solr</stringProp>
+                                <stringProp name="Argument.value">fusion</stringProp>
                                 <stringProp name="Argument.metadata">=</stringProp>
                             </elementProp>
                             <elementProp name="ZK_HOST" elementType="Argument">
@@ -67,6 +67,21 @@
                             <elementProp name="password" elementType="Argument">
                                 <stringProp name="Argument.name">password</stringProp>
                                 <stringProp name="Argument.value">password123</stringProp>
+                                <stringProp name="Argument.metadata">=</stringProp>
+                            </elementProp>
+                            <elementProp name="documentIdPrefix" elementType="Argument">
+                                <stringProp name="Argument.name">documentIdPrefix</stringProp>
+                                <stringProp name="Argument.value"></stringProp>
+                                <stringProp name="Argument.metadata">=</stringProp>
+                            </elementProp>
+                            <elementProp name="documentsNumber" elementType="Argument">
+                                <stringProp name="Argument.name">documentsNumber</stringProp>
+                                <stringProp name="Argument.value">3000000</stringProp>
+                                <stringProp name="Argument.metadata">=</stringProp>
+                            </elementProp>
+                            <elementProp name="fieldToSearchBy" elementType="Argument">
+                                <stringProp name="Argument.name">fieldToSearchBy</stringProp>
+                                <stringProp name="Argument.value">first_name</stringProp>
                                 <stringProp name="Argument.metadata">=</stringProp>
                             </elementProp>
                         </collectionProp>

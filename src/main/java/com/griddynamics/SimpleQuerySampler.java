@@ -34,19 +34,19 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * To start Solr in Standalone mode ( type=solr )
  * ./bin/start -e techproducts -noprompt
- *
+ * <p>
  * To start Solr in SolrCloud mode ( type=solrcloud )
  * ./bin/start -e cloud -noprompt
- *
+ * <p>
  * To start Fusion ( type=fusion)
  * ./bin/fusion start
- *
+ * <p>
  * {@link #runTest(JavaSamplerContext)} is called n times ( where n is the number of test runs you ask
  * jmeter to run and is specified in LoopController.loops in query.jmx )
- *
+ * <p>
  * Use {@link #setupTest(JavaSamplerContext)} to create the set of queries which you then
  * want {@link #runTest(JavaSamplerContext)} to utilize in it's test run.
- *
+ * <p>
  * This sample code always fires match all queries.
  */
 public class SimpleQuerySampler extends AbstractJavaSamplerClient implements Serializable {
@@ -62,11 +62,11 @@ public class SimpleQuerySampler extends AbstractJavaSamplerClient implements Ser
 
     private static ConsoleReporter reporter = null;
 
-/*  Using 2 fields (fusionClient and solrClient) instead of only 1,
-    because I assume that a SolrClient instance created to connect to Fusion
-    perhaps could do more work and be less performant than SolrClient configured to work with Solr.
-    But fusionClient allows to use a query pipeline. So for the search queries I use fusionClient.
-    For all the other queries that don't need any Fusion functionality is used solrClient.*/
+    /*  Using 2 fields (fusionClient and solrClient) instead of only 1,
+        because I assume that a SolrClient instance created to connect to Fusion
+        perhaps could do more work and be less performant than SolrClient configured to work with Solr.
+        But fusionClient allows to use a query pipeline. So for the search queries I use fusionClient.
+        For all the other queries that don't need any Fusion functionality is used solrClient.*/
     private static volatile SolrClient fusionClient = null;
 
     /*
@@ -78,10 +78,10 @@ public class SimpleQuerySampler extends AbstractJavaSamplerClient implements Ser
     */
     private static volatile SolrClient solrClient = null;
 
+    private static volatile String fieldToSearchBy;
+
     //private static Random random;
     private CloseableHttpClient httpClient;
-    public static final int DOCUMENTS_NUMBER = 3000000;
-    public static final String FIELD_TO_SEARCH_BY = "first_name";
     private String[] queries = new String[100000];
     private int queryCounter = 0;
     private static CountDownLatch latch = new CountDownLatch(3);
@@ -92,6 +92,9 @@ public class SimpleQuerySampler extends AbstractJavaSamplerClient implements Ser
         return solrClient;
     }
 
+    public static String getFieldToSearchBy() {
+        return fieldToSearchBy;
+    }
 
     @Override
     public SampleResult runTest(JavaSamplerContext context) {
@@ -133,7 +136,6 @@ public class SimpleQuerySampler extends AbstractJavaSamplerClient implements Ser
         defaultParameters.addArgument("QUERY_PIPELINE", "http://localhost:8764/api/apollo/query-pipelines/default/collections/system_metrics");
         defaultParameters.addArgument("username", "admin");
         defaultParameters.addArgument("password", "password123");
-        defaultParameters.addArgument("documentIdPrefix", "GenaratedSearchData.csv#");
         return defaultParameters;
     }
 
@@ -147,21 +149,44 @@ public class SimpleQuerySampler extends AbstractJavaSamplerClient implements Ser
 
         setupFusionClient(params);
 
+        setupFieldToSearchBy(params);
+
         setupSolrClient(params);
-        //setupSolrClient must be called before generateSearchQueries, because of FieldValuesSingleton
-        generateSearchQueries();
+        /*
+            setupSolrClient and setupFieldToSearchBy must be called before
+            generateSearchQueries because they initialise FieldValuesSingleton.
+            Initialising of a Singleton this way is very fragile.
+            The alternative is to use Inversion of Control.
+         */
+        generateSearchQueries(params);
 
         setupReporter();
+        startAtomicUpdatesThread(params);
+        waitAllInitialisationFinished();
+
+    }
+
+    private void setupFieldToSearchBy(Map<String, String> params) {
+        synchronized (SimpleQuerySampler.class) {
+            if (fieldToSearchBy == null)
+                fieldToSearchBy = params.get("fieldToSearchBy");
+        }
+    }
+
+    private void startAtomicUpdatesThread(Map<String, String> params) {
         synchronized (SimpleQuerySampler.class) {
             if (updaterThread == null) {
-                SolrAtomicUpdater updater = new SolrAtomicUpdater(solrClient, params.get("documentIdPrefix"));
+                SolrAtomicUpdater updater = new SolrAtomicUpdaterBuilder()
+                        .setSolrClient(solrClient)
+                        .setDocumentIdPrefix(params.get("documentIdPrefix"))
+                        .setDocumentsNumber(Integer.parseInt(params.get("documentsNumber")))
+                        .setFieldToSearchBy(params.get("fieldToSearchBy"))
+                        .createSolrAtomicUpdater();
                 updaterTask = new FutureTask<Boolean>(updater);
                 updaterThread = new Thread(updaterTask);
                 updaterThread.start();
             }
         }
-        waitAllInitialisationFinished();
-
     }
 
     private void setupReporter() {
@@ -212,7 +237,7 @@ public class SimpleQuerySampler extends AbstractJavaSamplerClient implements Ser
 
     }
 
-    private void setupSolrClient(Map<String, String> params){
+    private void setupSolrClient(Map<String, String> params) {
         synchronized (SimpleQuerySampler.class) {
             if (solrClient == null) {
                 String collection = params.get("COLLECTION");
@@ -234,9 +259,9 @@ public class SimpleQuerySampler extends AbstractJavaSamplerClient implements Ser
         }
     }
 
-    private void generateSearchQueries() {
+    private void generateSearchQueries(Map<String, String> params) {
         for (int i = 0; i < queries.length; i++) {
-            queries[i] = FIELD_TO_SEARCH_BY + ":" + FieldValuesSingleton.INSTANCE.getRandomTerm();
+            queries[i] = params.get("fieldToSearchBy") + ":" + FieldValuesSingleton.INSTANCE.getRandomTerm();
         }
     }
 
