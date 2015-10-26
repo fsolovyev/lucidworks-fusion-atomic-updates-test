@@ -1,5 +1,6 @@
 package com.griddynamics;
 
+import com.codahale.metrics.Counter;
 import org.apache.solr.client.solrj.SolrClient;
 
 public class SolrAtomicUpdaterBuilder {
@@ -7,6 +8,7 @@ public class SolrAtomicUpdaterBuilder {
     private String documentIdPrefix;
     private int documentsNumber;
     private String fieldToSearchBy;
+    private com.codahale.metrics.Counter updatesCounter;
 
     public SolrAtomicUpdaterBuilder setSolrClient(SolrClient solrClient) {
         this.solrClient = solrClient;
@@ -28,7 +30,12 @@ public class SolrAtomicUpdaterBuilder {
         return this;
     }
 
+    public SolrAtomicUpdaterBuilder setUpdatesCounter(Counter updatesCounter) {
+        this.updatesCounter = updatesCounter;
+        return this;
+    }
+
     public SolrAtomicUpdater createSolrAtomicUpdater() {
-        return new SolrAtomicUpdater(solrClient, documentIdPrefix, documentsNumber, fieldToSearchBy);
+        return new SolrAtomicUpdater(solrClient, documentIdPrefix, documentsNumber, fieldToSearchBy, updatesCounter);
     }
 }

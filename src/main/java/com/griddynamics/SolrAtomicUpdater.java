@@ -19,12 +19,14 @@ public class SolrAtomicUpdater implements Callable<Boolean> {
     private final String documentIdPrefix;
     private final int documentsNumber;
     private final String fieldToSearchBy;
+    private final com.codahale.metrics.Counter updatesCounter;
 
-    SolrAtomicUpdater(SolrClient solrClient, String documentIdPrefix, int documentsNumber, String fieldToSearchBy) {
+    SolrAtomicUpdater(SolrClient solrClient, String documentIdPrefix, int documentsNumber, String fieldToSearchBy, com.codahale.metrics.Counter updatesCounter ) {
         this.client = solrClient;
         this.documentIdPrefix = documentIdPrefix;
         this.documentsNumber = documentsNumber;
         this.fieldToSearchBy = fieldToSearchBy;
+        this.updatesCounter = updatesCounter;
     }
 
     @Override
@@ -39,6 +41,7 @@ public class SolrAtomicUpdater implements Callable<Boolean> {
             try {
                 client.add(sdoc); // send it to the solr server
                 softCommit(client, sdoc);
+                updatesCounter.inc();
             } catch (SolrServerException e) {
                 throw new RuntimeException(e);
             } catch (IOException e) {
@@ -61,7 +64,7 @@ public class SolrAtomicUpdater implements Callable<Boolean> {
     private void softCommit(SolrClient client,
                             SolrInputDocument sdoc) throws SolrServerException, IOException {
         UpdateRequest req = new UpdateRequest();
-        req.setAction(UpdateRequest.ACTION.COMMIT, false, false, true, 1);
+        req.setAction(UpdateRequest.ACTION.COMMIT, false, false, true);
         req.add(sdoc);
         UpdateResponse rsp = req.process(client);
     }

@@ -84,6 +84,11 @@
                                 <stringProp name="Argument.value">first_name</stringProp>
                                 <stringProp name="Argument.metadata">=</stringProp>
                             </elementProp>
+                            <elementProp name="runAtomicUpdates" elementType="Argument">
+                                <stringProp name="Argument.name">runAtomicUpdates</stringProp>
+                                <stringProp name="Argument.value">true</stringProp>
+                                <stringProp name="Argument.metadata">=</stringProp>
+                            </elementProp>
                         </collectionProp>
                     </elementProp>
                     <stringProp name="classname">com.griddynamics.SimpleQuerySampler</stringProp>

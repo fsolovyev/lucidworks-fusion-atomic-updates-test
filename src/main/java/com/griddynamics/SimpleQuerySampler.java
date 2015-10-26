@@ -59,6 +59,7 @@ public class SimpleQuerySampler extends AbstractJavaSamplerClient implements Ser
     private static final com.codahale.metrics.Timer queryTimer = metrics.timer("query");
     private static final com.codahale.metrics.Counter noResultsCounter = metrics.counter("noresults");
     private static final com.codahale.metrics.Counter excCounter = metrics.counter("exceptions");
+    private static final com.codahale.metrics.Counter updatesCounter = metrics.counter("atomicUpdates");
 
     private static ConsoleReporter reporter = null;
 
@@ -84,7 +85,7 @@ public class SimpleQuerySampler extends AbstractJavaSamplerClient implements Ser
     private CloseableHttpClient httpClient;
     private String[] queries = new String[100000];
     private int queryCounter = 0;
-    private static CountDownLatch latch = new CountDownLatch(3);
+    private static CountDownLatch latch = new CountDownLatch(1);
     private static FutureTask<Boolean> updaterTask;
     private static Thread updaterThread;
 
@@ -113,6 +114,7 @@ public class SimpleQuerySampler extends AbstractJavaSamplerClient implements Ser
             result.setResponseOK();
         } catch (Exception solrExc) {
             excCounter.inc();
+            getLogger().error("runTest error", solrExc);
         } finally {
             queryTimerCtxt.stop();
         }
@@ -175,12 +177,16 @@ public class SimpleQuerySampler extends AbstractJavaSamplerClient implements Ser
 
     private void startAtomicUpdatesThread(Map<String, String> params) {
         synchronized (SimpleQuerySampler.class) {
-            if (updaterThread == null) {
+            if (updaterThread == null
+                    && params.get("runAtomicUpdates") != null
+                    && params.get("runAtomicUpdates").equals("true")
+                    ) {
                 SolrAtomicUpdater updater = new SolrAtomicUpdaterBuilder()
                         .setSolrClient(solrClient)
                         .setDocumentIdPrefix(params.get("documentIdPrefix"))
                         .setDocumentsNumber(Integer.parseInt(params.get("documentsNumber")))
                         .setFieldToSearchBy(params.get("fieldToSearchBy"))
+                        .setUpdatesCounter(updatesCounter)
                         .createSolrAtomicUpdater();
                 updaterTask = new FutureTask<Boolean>(updater);
                 updaterThread = new Thread(updaterTask);
