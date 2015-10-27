@@ -6,6 +6,8 @@ import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.request.UpdateRequest;
 import org.apache.solr.client.solrj.response.UpdateResponse;
 import org.apache.solr.common.SolrInputDocument;
+import org.apache.solr.common.params.UpdateParams;
+import org.xbill.DNS.Update;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -39,8 +41,14 @@ public class SolrAtomicUpdater implements Callable<Boolean> {
             SolrInputDocument sdoc = createDocumentUpdate(randomEntryId, FieldValuesSingleton.INSTANCE.getRandomTerm());
 
             try {
-                client.add(sdoc); // send it to the solr server
-                softCommit(client, sdoc);
+                int commitWithinMs = -1;
+                UpdateRequest req = new UpdateRequest();
+                req.add(sdoc);
+                req.setCommitWithin(commitWithinMs);
+                req.setParam(UpdateParams.COMMIT, "true");
+                req.setParam(UpdateParams.SOFT_COMMIT,"true");
+                req.setParam(UpdateParams.WAIT_SEARCHER,"true");
+                req.process(client, null);
                 updatesCounter.inc();
             } catch (SolrServerException e) {
                 throw new RuntimeException(e);
@@ -59,13 +67,5 @@ public class SolrAtomicUpdater implements Callable<Boolean> {
         fieldModifier.put("set", term);
         sdoc.addField(fieldToSearchBy, fieldModifier); // add the map as the field value
         return sdoc;
-    }
-
-    private void softCommit(SolrClient client,
-                            SolrInputDocument sdoc) throws SolrServerException, IOException {
-        UpdateRequest req = new UpdateRequest();
-        req.setAction(UpdateRequest.ACTION.COMMIT, false, false, true);
-        req.add(sdoc);
-        UpdateResponse rsp = req.process(client);
     }
 }
